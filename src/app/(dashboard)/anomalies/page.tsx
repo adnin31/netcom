@@ -6,10 +6,10 @@ import { AnomalyChart, HorizontalBarChart } from "@/components/charts";
 import { PeriodFilter } from "@/components/period-filter";
 import { Badge, Card, CardHeader, EmptyState, Kpi, PageHeader, PageSkeleton } from "@/components/ui";
 import { YearCalendar } from "@/components/year-calendar";
-import { getAvailablePeriods, getCoverage, getDailyRevenueForYear, getDayDetail } from "@/lib/analytics";
-import { detectAnomalies, METHODS, type AnomalyMethod, type DayPoint, type ScoredDay } from "@/lib/anomaly";
-import { fmtDate, fmtMoney, fmtMoneyShort, fmtNumber, fmtPct, MONTHS } from "@/lib/format";
-import { DEFAULT_MONTH, DEFAULT_YEAR, int, str, type SearchParams } from "@/lib/params";
+import { getUseCases } from "@/infrastructure/container";
+import { isAnomalyMethod, METHODS, type ScoredDay } from "@/core/domain/anomaly";
+import { fmtDate, fmtMoney, fmtMoneyShort, fmtNumber, fmtPct, MONTHS } from "@/components/format";
+import { DEFAULT_MONTH, DEFAULT_YEAR, int, str, type SearchParams } from "@/app/(dashboard)/search-params";
 
 export const metadata: Metadata = { title: "Anomali Revenue" };
 
@@ -27,44 +27,22 @@ export default function AnomaliesPage({ searchParams }: { searchParams: SearchPa
   );
 }
 
-/** Score every day against the distribution of its own month. */
-function scoreByMonth(days: DayPoint[], method: AnomalyMethod, threshold: number) {
-  const groups = new Map<string, DayPoint[]>();
-  for (const d of days) {
-    const key = d.date.slice(0, 7);
-    groups.set(key, [...(groups.get(key) ?? []), d]);
-  }
-  const result = new Map<string, ReturnType<typeof detectAnomalies>>();
-  for (const [key, list] of groups) result.set(key, detectAnomalies(list, method, threshold));
-  return result;
-}
-
 async function Anomalies({ searchParams }: { searchParams: SearchParams }) {
   const sp = await searchParams;
   const year = int(sp.year, DEFAULT_YEAR, 2000, 2100);
   const allMonths = str(sp.month) === "all";
   const month = allMonths ? null : int(sp.month, DEFAULT_MONTH, 1, 12);
-  const method = (Object.keys(METHODS).includes(str(sp.method) ?? "") ? str(sp.method) : "mad") as AnomalyMethod;
-  const thresholdRaw = Number(str(sp.threshold));
-  const threshold = thresholdRaw > 0 && thresholdRaw <= 10 ? thresholdRaw : METHODS[method].defaultThreshold;
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(str(sp.date) ?? "") ? str(sp.date)! : null;
-
-  const [{ years, periods }, coverage, yearDays] = await Promise.all([
-    getAvailablePeriods(),
-    getCoverage(),
-    getDailyRevenueForYear(year),
-  ]);
-
-  // Only days inside the dataset's coverage count; days outside it are unknown, not zero.
-  const covered = yearDays.filter((d) => d.date >= coverage.first && d.date <= coverage.last);
-  const scored = scoreByMonth(covered, method, threshold);
-  const monthKey = month ? `${year}-${String(month).padStart(2, "0")}` : null;
-  const view = monthKey ? scored.get(monthKey) : null;
-  const allScored: ScoredDay[] = [...scored.values()].flatMap((s) => s.days);
-  const shownDays = monthKey ? view?.days ?? [] : allScored;
-  const anomalies = shownDays.filter((d) => d.isAnomaly).sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
-  const spikes = anomalies.filter((d) => d.direction === "spike").length;
-  const selected = date ? allScored.find((d) => d.date === date) ?? null : null;
+  const methodRaw = str(sp.method);
+  const method = isAnomalyMethod(methodRaw) ? methodRaw : "mad";
+  const { detectRevenueAnomalies } = await getUseCases();
+  const r = await detectRevenueAnomalies.execute({
+    year, month, method, threshold: Number(str(sp.threshold)) || undefined, date: str(sp.date) ?? null,
+  });
+  const { threshold, anomalies, spikes, selected, availableYears: years, periods } = r;
+  const shownDays = r.days;
+  const allScored = r.yearDays;
+  const date = selected?.date ?? null;
+  const view = r.monthStats;
 
   const query = new URLSearchParams({ year: String(year), method, threshold: String(threshold) }).toString();
   const current = { year: String(year), month: month ? String(month) : "all", method, threshold: String(threshold) };
@@ -90,11 +68,11 @@ async function Anomalies({ searchParams }: { searchParams: SearchParams }) {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi label="Hari anomali" value={fmtNumber(anomalies.length)} hint={`dari ${shownDays.length} hari teranalisis`} icon={Activity} tone="red" />
         <Kpi label="Lonjakan" value={fmtNumber(spikes)} hint="Revenue jauh di atas normal" icon={ArrowUpRight} tone="amber" />
-        <Kpi label="Penurunan" value={fmtNumber(anomalies.length - spikes)} hint="Revenue jauh di bawah normal" icon={ArrowDownRight} tone="violet" />
+        <Kpi label="Penurunan" value={fmtNumber(r.drops)} hint="Revenue jauh di bawah normal" icon={ArrowDownRight} tone="violet" />
         <Kpi
           label={month ? "Baseline harian" : "Revenue setahun"}
-          value={month ? fmtMoneyShort(view?.days[0]?.baseline ?? 0) : fmtMoneyShort(shownDays.reduce((s, d) => s + d.revenue, 0))}
-          hint={month && view ? `Rentang normal ${fmtMoneyShort(view.stats.lower)} – ${fmtMoneyShort(view.stats.upper)}` : `${shownDays.length} hari data`}
+          value={month ? fmtMoneyShort(view?.baseline ?? 0) : fmtMoneyShort(shownDays.reduce((s, d) => s + d.revenue, 0))}
+          hint={month && view ? `Rentang normal ${fmtMoneyShort(view.lower)} – ${fmtMoneyShort(view.upper)}` : `${shownDays.length} hari data`}
           icon={Sigma}
           tone="green"
         />
@@ -109,12 +87,12 @@ async function Anomalies({ searchParams }: { searchParams: SearchParams }) {
             subtitle="Area hijau = rentang normal. Titik merah = anomali. Klik titik untuk detail tanggal."
           />
           <div className="p-4">
-            {view && view.days.length >= 7 ? (
+            {view ? (
               <AnomalyChart
-                data={view.days}
-                lower={view.stats.lower}
-                upper={view.stats.upper}
-                baseline={view.days[0].baseline}
+                data={shownDays}
+                lower={view.lower}
+                upper={view.upper}
+                baseline={view.baseline}
                 baseQuery={`${query}&month=${month}`}
               />
             ) : (
@@ -179,7 +157,8 @@ async function Anomalies({ searchParams }: { searchParams: SearchParams }) {
 }
 
 async function DayDetail({ day, closeHref }: { day: ScoredDay; closeHref: string }) {
-  const detail = await getDayDetail(day.date);
+  const { getDayBreakdown } = await getUseCases();
+  const detail = await getDayBreakdown.execute(day.date);
   return (
     <Card className={day.isAnomaly ? "ring-2 ring-rose-200" : undefined}>
       <CardHeader
@@ -199,8 +178,8 @@ async function DayDetail({ day, closeHref }: { day: ScoredDay; closeHref: string
             ["Revenue", fmtMoney(day.revenue)],
             ["Baseline bulan ini", fmtMoney(day.baseline)],
             ["Orders", fmtNumber(day.orders)],
-            ["Rata-rata per order", fmtMoney(detail.summary.avg_order)],
-            ["Order terbesar", fmtMoney(detail.summary.max_order)],
+            ["Rata-rata per order", fmtMoney(detail.avgOrderValue)],
+            ["Order terbesar", fmtMoney(detail.maxOrderValue)],
             ["Skor anomali", day.score.toFixed(2)],
           ].map(([k, v]) => (
             <div key={k}>

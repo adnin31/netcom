@@ -3,7 +3,7 @@
 import { Loader2, Search, Truck } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { MONTHS } from "@/lib/format";
+import { MONTHS } from "@/components/format";
 
 const field =
   "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-100";

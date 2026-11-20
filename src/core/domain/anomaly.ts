@@ -1,4 +1,5 @@
-// Pure anomaly-detection helpers (no I/O) for daily revenue series.
+// Entity rules: anomaly detection on a daily revenue series (pure, no I/O).
+import type { DayRevenue } from "./revenue";
 
 export type AnomalyMethod = "mad" | "zscore" | "iqr";
 
@@ -20,7 +21,14 @@ export const METHODS: Record<AnomalyMethod, { label: string; defaultThreshold: n
   },
 };
 
-export type DayPoint = { date: string; revenue: number; orders: number };
+export type DayPoint = DayRevenue;
+
+export function isAnomalyMethod(value: unknown): value is AnomalyMethod {
+  return typeof value === "string" && value in METHODS;
+}
+
+/** Minimum number of days in a series before anything is flagged. */
+export const MIN_DAYS_FOR_DETECTION = 7;
 
 export type ScoredDay = DayPoint & {
   score: number;
@@ -93,7 +101,7 @@ export function detectAnomalies(
     else if (method === "mad") score = mad === 0 ? 0 : (0.6745 * (x - median)) / mad;
     else if (iqr > 0) score = x > q3 ? (x - q3) / iqr : x < q1 ? -(q1 - x) / iqr : 0;
 
-    const isAnomaly = values.length >= 7 && Math.abs(score) >= threshold;
+    const isAnomaly = values.length >= MIN_DAYS_FOR_DETECTION && Math.abs(score) >= threshold;
     return {
       ...d,
       score,

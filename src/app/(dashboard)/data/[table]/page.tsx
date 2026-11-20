@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { DataTable } from "@/components/data-table";
 import { PageHeader, Skeleton } from "@/components/ui";
-import { getTable, TABLES } from "@/lib/tables";
+import { getTable, TABLES } from "@/core/domain/dataset";
 
 type Props = { params: Promise<{ table: string }> };
 

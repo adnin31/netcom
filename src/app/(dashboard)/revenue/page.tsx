@@ -5,9 +5,9 @@ import { ArrowDownRight, ArrowUpRight, Banknote, CalendarDays, ShoppingBag, Tren
 import { DailyRevenueChart, MonthlyTrendChart } from "@/components/charts";
 import { PeriodFilter } from "@/components/period-filter";
 import { Card, CardHeader, EmptyState, Kpi, PageHeader, PageSkeleton } from "@/components/ui";
-import { getAvailablePeriods, getDailyRevenue, getMonthlyRevenue } from "@/lib/analytics";
-import { fmtDate, fmtMoney, fmtMoneyShort, fmtNumber, fmtPct, MONTHS } from "@/lib/format";
-import { DEFAULT_MONTH, DEFAULT_YEAR, int, type SearchParams } from "@/lib/params";
+import { getUseCases } from "@/infrastructure/container";
+import { fmtDate, fmtMoney, fmtMoneyShort, fmtNumber, fmtPct, MONTHS } from "@/components/format";
+import { DEFAULT_MONTH, DEFAULT_YEAR, int, type SearchParams } from "@/app/(dashboard)/search-params";
 
 export const metadata: Metadata = { title: "Revenue Harian" };
 
@@ -30,23 +30,10 @@ async function Revenue({ searchParams }: { searchParams: SearchParams }) {
   const year = int(sp.year, DEFAULT_YEAR, 2000, 2100);
   const month = int(sp.month, DEFAULT_MONTH, 1, 12);
 
-  const [{ years, periods }, days, monthly] = await Promise.all([
-    getAvailablePeriods(),
-    getDailyRevenue(year, month),
-    getMonthlyRevenue(year),
-  ]);
-
-  const total = days.reduce((s, d) => s + d.revenue, 0);
-  const orders = days.reduce((s, d) => s + d.orders, 0);
-  const activeDays = days.filter((d) => d.orders > 0);
-  const avg = activeDays.length ? total / activeDays.length : 0;
-  const best = activeDays.reduce<typeof days[number] | null>((b, d) => (!b || d.revenue > b.revenue ? d : b), null);
-  const worst = activeDays.reduce<typeof days[number] | null>((b, d) => (!b || d.revenue < b.revenue ? d : b), null);
-
-  const prevKey = month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
-  const prevMonthly = month === 1 ? await getMonthlyRevenue(year - 1) : monthly;
-  const prev = prevMonthly.find((m) => m.month === prevKey);
-  const growth = prev && prev.revenue > 0 ? ((total - prev.revenue) / prev.revenue) * 100 : null;
+  const { getDailyRevenue } = await getUseCases();
+  const { days, summary, yearMonthly: monthly, availableYears: years, periods } = await getDailyRevenue.execute({ year, month });
+  const { total, orders, best, worst, growthPct: growth } = summary;
+  const avg = summary.averagePerActiveDay;
 
   return (
     <div className="space-y-6">
@@ -69,8 +56,8 @@ async function Revenue({ searchParams }: { searchParams: SearchParams }) {
           )}
           icon={Banknote}
         />
-        <Kpi label="Orders" value={fmtNumber(orders)} hint={`${activeDays.length} hari aktif`} icon={ShoppingBag} tone="violet" />
-        <Kpi label="Rata-rata harian" value={fmtMoneyShort(avg)} hint={orders ? `${fmtMoney(total / orders)} / order` : "—"} icon={CalendarDays} tone="green" />
+        <Kpi label="Orders" value={fmtNumber(orders)} hint={`${summary.activeDays} hari aktif`} icon={ShoppingBag} tone="violet" />
+        <Kpi label="Rata-rata harian" value={fmtMoneyShort(avg)} hint={summary.averageOrderValue ? `${fmtMoney(summary.averageOrderValue)} / order` : "—"} icon={CalendarDays} tone="green" />
         <Kpi
           label="Hari terbaik"
           value={best ? fmtMoneyShort(best.revenue) : "—"}
@@ -91,7 +78,7 @@ async function Revenue({ searchParams }: { searchParams: SearchParams }) {
           }
         />
         <div className="p-4">
-          {activeDays.length === 0 ? (
+          {summary.activeDays === 0 ? (
             <EmptyState title="Tidak ada transaksi pada periode ini" />
           ) : (
             <DailyRevenueChart data={days} average={avg} />

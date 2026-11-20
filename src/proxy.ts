@@ -1,14 +1,21 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE, verifySession } from "@/lib/session";
+import { SESSION_COOKIE } from "@/adapters/http/session-cookie";
+import { JoseTokenService } from "@/adapters/security/jose-token-service";
+import { config as appConfig } from "@/infrastructure/config";
 
 const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/health"];
+let tokens: JoseTokenService | undefined;
 
-/** Optimistic auth check: every page and API needs a valid session cookie. */
+/**
+ * Optimistic auth check before routing. Route handlers verify the session
+ * again through the Authenticate use case.
+ */
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (PUBLIC_PATHS.some((p) => pathname === p)) return NextResponse.next();
+  if (PUBLIC_PATHS.includes(pathname)) return NextResponse.next();
 
-  const user = await verifySession(request.cookies.get(SESSION_COOKIE)?.value);
+  tokens ??= new JoseTokenService(appConfig.authSecret, appConfig.sessionTtlSeconds);
+  const user = await tokens.verify(request.cookies.get(SESSION_COOKIE)?.value);
   if (user) return NextResponse.next();
 
   if (pathname.startsWith("/api/")) {
@@ -20,5 +27,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|svg|ico|jpg)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|.*\\.(?:png|svg|ico|jpg)$).*)"],
 };

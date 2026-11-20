@@ -3,8 +3,8 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { Loader2 } from "lucide-react";
-import { METHODS, type AnomalyMethod } from "@/lib/anomaly";
-import { MONTHS } from "@/lib/format";
+import { METHODS, type AnomalyMethod } from "@/core/domain/anomaly";
+import { MONTHS } from "@/components/format";
 
 type Props = {
   years: number[];

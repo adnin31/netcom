@@ -17,7 +17,7 @@ env:
 
 jobs:
   check:
-    name: Lint, typecheck & build
+    name: Lint (incl. dependency rule), typecheck, test & build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,8 +28,9 @@ jobs:
           cache: npm
 
       - run: npm ci
-      - run: npm run lint
-      - run: npx tsc --noEmit
+      - run: npm run lint      # also enforces the Clean Architecture dependency rule
+      - run: npm run typecheck
+      - run: npm test          # domain + use cases, no database needed
       - run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: 1

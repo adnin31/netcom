@@ -1,5 +1,8 @@
-// Metadata for every dataset table. Drives the generic CRUD API and UI.
-// Shared by server and client, so it must stay free of server-only imports.
+// Entity definitions for the 9 dataset tables: columns, keys and the
+// validation rules for a record. Pure data + functions, used by the use cases
+// and (read-only) by the UI, which is allowed since UI is an outer layer.
+import { ORDER_STATUSES } from "./order";
+import { ValidationError } from "./errors";
 
 export type ColumnType = "id" | "text" | "longtext" | "int" | "float" | "money" | "timestamp" | "select";
 
@@ -28,7 +31,6 @@ export type TableDef = {
   defaultSort: { column: string; dir: "asc" | "desc" };
 };
 
-const ORDER_STATUSES = ["created", "approved", "invoiced", "processing", "shipped", "delivered", "canceled", "unavailable"];
 const PAYMENT_TYPES = ["credit_card", "boleto", "voucher", "debit_card", "not_defined"];
 const id = (name: string, label: string, extra: Partial<Column> = {}): Column => ({
   name, label, type: "id", required: true, maxLength: 32, ...extra,
@@ -45,7 +47,7 @@ export const TABLES: TableDef[] = [
     columns: [
       id("order_id", "Order ID"),
       id("customer_id", "Customer ID", { ref: "customers" }),
-      { name: "order_status", label: "Status", type: "select", options: ORDER_STATUSES, required: true },
+      { name: "order_status", label: "Status", type: "select", options: [...ORDER_STATUSES], required: true },
       { name: "order_purchase_timestamp", label: "Purchased", type: "timestamp", required: true },
       { name: "order_approved_at", label: "Approved", type: "timestamp" },
       { name: "order_delivered_carrier_date", label: "To carrier", type: "timestamp" },
@@ -182,4 +184,92 @@ export const TABLES: TableDef[] = [
 
 export function getTable(name: string): TableDef | undefined {
   return TABLES.find((t) => t.name === name);
+}
+
+export type RecordValues = Record<string, string | number | null>;
+export type RecordKey = Record<string, string>;
+
+/**
+ * Validate and coerce raw input into a record for `table`.
+ * - create: every non-generated column is considered
+ * - update: primary key columns are ignored, absent columns are left untouched
+ */
+export function parseRecord(table: TableDef, input: Record<string, unknown>, mode: "create" | "update"): RecordValues {
+  const out: RecordValues = {};
+  for (const c of table.columns) {
+    if (c.auto) continue;
+    if (mode === "update" && (table.primaryKey.includes(c.name) || !(c.name in input))) continue;
+
+    const raw = input[c.name];
+    const str = raw === null || raw === undefined ? "" : String(raw).trim();
+    if (str === "") {
+      if (c.required) throw new ValidationError(`${c.label} wajib diisi`);
+      out[c.name] = null;
+      continue;
+    }
+    if (c.maxLength && str.length > c.maxLength) {
+      throw new ValidationError(`${c.label} maksimal ${c.maxLength} karakter`);
+    }
+    out[c.name] = coerce(c, str);
+  }
+  return out;
+}
+
+function coerce(c: Column, str: string): string | number {
+  switch (c.type) {
+    case "int": {
+      const n = Number(str);
+      if (!Number.isInteger(n)) throw new ValidationError(`${c.label} harus bilangan bulat`);
+      return n;
+    }
+    case "float":
+    case "money": {
+      const n = Number(str);
+      if (!Number.isFinite(n)) throw new ValidationError(`${c.label} harus angka`);
+      if (c.type === "money" && n < 0) throw new ValidationError(`${c.label} tidak boleh negatif`);
+      return n;
+    }
+    case "timestamp": {
+      const v = str.replace("T", " ");
+      if (!/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/.test(v) || Number.isNaN(Date.parse(v.replace(" ", "T")))) {
+        throw new ValidationError(`${c.label} harus format YYYY-MM-DD HH:MM:SS`);
+      }
+      return v;
+    }
+    case "select":
+      if (c.options && !c.options.includes(str)) throw new ValidationError(`${c.label} tidak valid`);
+      return c.name === "review_score" ? Number(str) : str;
+    case "id":
+      if (!/^[0-9a-z]+$/i.test(str)) throw new ValidationError(`${c.label} hanya boleh huruf/angka`);
+      return str.toLowerCase();
+    default:
+      return str;
+  }
+}
+
+/** Extract and validate the (possibly composite) primary key. */
+export function parseKey(table: TableDef, key: unknown): RecordKey {
+  if (!key || typeof key !== "object") throw new ValidationError("Primary key wajib dikirim");
+  const k = key as Record<string, unknown>;
+  const out: RecordKey = {};
+  for (const col of table.primaryKey) {
+    const v = k[col];
+    if (v === undefined || v === null || v === "") throw new ValidationError(`Primary key ${col} wajib dikirim`);
+    out[col] = String(v);
+  }
+  return out;
+}
+
+export type ListQuery = { search: string; page: number; pageSize: number; sort: string; dir: "asc" | "desc" };
+
+/** Normalize list parameters: bounded page size, whitelisted sort column. */
+export function normalizeListQuery(
+  table: TableDef,
+  p: { q?: string | null; page?: unknown; pageSize?: unknown; sort?: string | null; dir?: string | null },
+): ListQuery {
+  const pageSize = Math.min(Math.max(Number(p.pageSize) || 20, 5), 100);
+  const page = Math.max(Math.floor(Number(p.page)) || 1, 1);
+  const sort = table.columns.some((c) => c.name === p.sort) ? p.sort! : table.defaultSort.column;
+  const dir = p.dir === "asc" || p.dir === "desc" ? p.dir : table.defaultSort.dir;
+  return { search: (p.q ?? "").trim().slice(0, 100), page, pageSize, sort, dir };
 }

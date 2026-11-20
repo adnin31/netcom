@@ -11,6 +11,7 @@ Dashboard untuk dataset **Olist Brazilian E-Commerce** (9 CSV, ±1,5 juta baris)
 | **Grafik** | [Recharts](https://recharts.org) (library third-party) |
 | **Database** | PostgreSQL 16, driver [`postgres`](https://github.com/porsager/postgres) (SQL murni, tanpa ORM) |
 | **Auth** | JWT (HS256, `jose`) di cookie HttpOnly + bcrypt |
+| **Arsitektur** | Clean Architecture (Entities → Use Cases → Adapters → Frameworks), dijaga ESLint, diuji Vitest |
 | **Deploy** | Docker multi-stage (Next.js standalone) + Docker Compose, GitHub Actions → GHCR |
 
 ---
@@ -146,20 +147,58 @@ pg_dump --no-owner --no-privileges "$DATABASE_URL" | gzip -9 > db/netcom_dump.sq
 
 ## 4. Arsitektur & data modeling
 
+Kode disusun mengikuti **[The Clean Architecture](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html)** (Robert C. Martin). Ada 4 lingkaran, dan **Dependency Rule** berlaku: dependensi source code hanya boleh mengarah **ke dalam**.
+
 ```
-Browser ──► Next.js (Docker, standalone)
-             ├─ proxy.ts ............ cek JWT untuk semua halaman & /api
-             ├─ Server Components ... query analitik langsung ke DB, di-stream via <Suspense>
-             ├─ Route Handlers ...... REST CRUD + auth
-             └─ src/lib
-                 ├─ tables.ts ....... metadata 9 tabel (kolom, tipe, PK, kolom pencarian)
-                 ├─ crud.ts ......... query builder generik (identifier di-whitelist, nilai di-parameterize)
-                 ├─ analytics.ts .... query revenue, anomali, unshipped
-                 └─ anomaly.ts ...... algoritma deteksi (pure function)
-                       │
-                       ▼
-                PostgreSQL 16
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Frameworks & Drivers   src/app, src/components, src/proxy.ts, src/infrastructure │
+│  Next.js pages/route handlers, React UI, PostgreSQL pool, config, DI container   │
+│  ┌──────────────────────────────────────────────────────────────────────────┐ │
+│  │ Interface Adapters   src/adapters                                         │ │
+│  │  http/ controllers + error presenter · persistence/postgres/ repositories │ │
+│  │  security/ bcrypt & JWT · system-clock                                    │ │
+│  │  ┌────────────────────────────────────────────────────────────────────┐   │ │
+│  │  │ Use Cases   src/core/application                                    │   │ │
+│  │  │  Login, GetOverview, GetDailyRevenue, DetectRevenueAnomalies,      │   │ │
+│  │  │  ListUnshippedOrders, ShipOrder, List/Create/Update/DeleteRecord   │   │ │
+│  │  │  ports.ts = interface Repository/PasswordHasher/TokenService/Clock │   │ │
+│  │  │  ┌──────────────────────────────────────────────────────────────┐ │   │ │
+│  │  │  │ Entities   src/core/domain                                   │ │   │ │
+│  │  │  │  Order (aturan pengiriman), Revenue, Anomaly (MAD/Z/IQR),    │ │   │ │
+│  │  │  │  Period, Dataset (definisi + validasi record), User, errors  │ │   │ │
+│  │  │  └──────────────────────────────────────────────────────────────┘ │   │ │
+│  │  └────────────────────────────────────────────────────────────────────┘   │ │
+│  └──────────────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Alur satu request** (contoh: tombol *Kirim*):
+
+```
+route.ts (Next) → OrderController (adapter) → ShipOrder (use case)
+                                                 ├─ OrderRepository.findById  ← port, diimplementasi PostgresOrderRepository
+                                                 ├─ assertCanShip(order)      ← aturan bisnis di entity Order
+                                                 ├─ Clock.now()               ← port, diimplementasi SystemClock
+                                                 └─ OrderRepository.markShipped
+             ← DomainError → error-presenter → HTTP 400/404/409
+```
+
+| Lingkaran | Boleh bergantung pada | Tidak boleh tahu |
+|---|---|---|
+| **Entities** `core/domain` | — (TypeScript murni) | use case, SQL, HTTP, Next.js, React |
+| **Use Cases** `core/application` | Entities + *port* yang ia definisikan sendiri | PostgreSQL, bcrypt/jose, Next.js |
+| **Adapters** `adapters` | Core + driver (postgres, jose, bcrypt) | Next.js, composition root, UI |
+| **Frameworks** `app`, `components`, `infrastructure` | Semua lapisan di dalamnya | — |
+
+Prinsip yang diterapkan:
+
+- **Dependency Inversion lewat ports.** Use case memanggil `interface` di `core/application/ports.ts`. Implementasinya ada di luar (`PostgresRevenueRepository`, `BcryptPasswordHasher`, `JoseTokenService`, `SystemClock`). Mengganti Postgres ke DB lain hanya menambah adapter baru tanpa menyentuh core.
+- **Hanya DTO sederhana yang melewati batas.** Repository mengembalikan objek data polos (mis. `DayRevenue`, `UnshippedRow`), bukan baris driver. Error SQL (`23505`, `23503`, …) diterjemahkan menjadi `ConflictError`/`ValidationError` di adapter, sehingga core tidak pernah melihat kode SQLSTATE.
+- **Aturan bisnis ada di entity, bukan di SQL atau UI.** Contohnya: siapa yang boleh dikirim (`assertCanShip`), hitungan umur dan *overdue*, definisi revenue, ringkasan bulanan, deteksi anomali, dan validasi record CRUD.
+- **Composition root tunggal** (`src/infrastructure/container.ts`) merakit semua dependensi. Container dibangun *lazy*, sehingga `next build` jalan tanpa database maupun secret.
+- **Lapisan framework tipis.** Route handler cukup satu baris yang memanggil controller. Page memanggil `getUseCases()` lalu menampilkan output use case.
+- **Dependency Rule dijaga otomatis.** `eslint.config.mjs` memakai `no-restricted-imports` per lapisan. Contohnya, `import postgres` atau `@/infrastructure/*` di `core/domain` menyebabkan **lint error**, dan CI pun gagal.
+- **Testable tanpa infrastruktur.** `npm test` (Vitest) menguji entity dan use case dengan *fake* in-memory, tanpa database maupun web server.
 
 **Keputusan modeling**
 
@@ -183,16 +222,35 @@ Browser ──► Next.js (Docker, standalone)
 ```
 netcom/
 ├─ src/
-│  ├─ app/(dashboard)/     overview, revenue, anomalies, unshipped, data/[table]
-│  ├─ app/login/           halaman login
-│  ├─ app/api/             auth, data (CRUD), orders/[id]/ship, health
-│  ├─ components/          charts (Recharts), data-table, filter, sidebar, ui
-│  ├─ lib/                 db, auth/session, tables, crud, analytics, anomaly, format
-│  └─ proxy.ts             proteksi route
-├─ db/                     schema.sql, indexes.sql, netcom_dump.sql.gz
-├─ docs/                   erd.png, erd.svg
-├─ scripts/                import-dataset.sh
+│  ├─ core/                         ← tidak bergantung pada framework/DB apa pun
+│  │  ├─ domain/                    Entities: order, revenue, anomaly, period, dataset, user, errors (+ unit test)
+│  │  └─ application/
+│  │     ├─ ports.ts                interface yang dibutuhkan use case
+│  │     └─ use-cases/              login, get-overview, get-daily-revenue, detect-revenue-anomalies,
+│  │                                get-day-breakdown, list-unshipped-orders, ship-order, manage-dataset (+ test)
+│  ├─ adapters/
+│  │  ├─ http/                      controllers, error-presenter, session-cookie
+│  │  ├─ persistence/postgres/      repository SQL + penerjemah error PG
+│  │  ├─ security/                  bcrypt-password-hasher, jose-token-service
+│  │  └─ system-clock.ts
+│  ├─ infrastructure/               config, database pool, container (DI), session (Next cookies)
+│  ├─ app/                          Next.js: pages (dashboard, login) & route handlers (1 baris → controller)
+│  ├─ components/                   React UI: charts (Recharts), data-table, filter, sidebar, format
+│  └─ proxy.ts                      cek sesi sebelum routing
+├─ db/                              schema.sql, indexes.sql, netcom_dump.sql.gz
+├─ docs/                            erd.png, erd.svg
+├─ scripts/                         import-dataset.sh
 ├─ Dockerfile · docker-compose.yml · .github/workflows/ci-cd.yml
+```
+
+**Perintah pengembangan**
+
+```bash
+npm run dev        # dev server
+npm test           # unit test domain + use case (tanpa DB)
+npm run lint       # ESLint + pengecekan Dependency Rule
+npm run typecheck  # TypeScript
+npm run build      # build produksi (standalone)
 ```
 
 ---
@@ -201,7 +259,7 @@ netcom/
 
 Workflow `.github/workflows/ci-cd.yml`:
 
-1. **check** (push & PR ke `main`/`develop`): `npm ci` → lint → typecheck → `next build`.
+1. **check** (push & PR ke `main`/`develop`): `npm ci` → lint (termasuk Dependency Rule) → typecheck → **unit test** → `next build`.
 2. **docker** (push branch/tag): build image multi-stage dengan cache GitHub Actions, push ke **GHCR** `ghcr.io/<owner>/netcom` dengan tag `latest` (branch default), nama branch, `sha-xxxxxxx`, dan semver dari tag `v*`.
 3. **deploy** (opsional, hanya `main`): SSH ke server lalu `git pull && docker compose pull app && docker compose up -d`. Aktif bila repository variable `DEPLOY_HOST` diisi. Butuh: variables `DEPLOY_HOST`, `DEPLOY_USER`, (`DEPLOY_PATH`), secret `DEPLOY_SSH_KEY`.
 

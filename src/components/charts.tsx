@@ -5,8 +5,8 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart,
   ReferenceArea, ReferenceLine, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis,
 } from "recharts";
-import type { ScoredDay } from "@/lib/anomaly";
-import { fmtDate, fmtMoney, fmtMoneyShort, fmtNumber, MONTHS_SHORT } from "@/lib/format";
+import type { ScoredDay } from "@/core/domain/anomaly";
+import { fmtDate, fmtMoney, fmtMoneyShort, fmtNumber, MONTHS_SHORT } from "@/components/format";
 
 const BRAND = "#3b6cf6";
 const BRAND_SOFT = "#bfd3fe";

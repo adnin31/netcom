@@ -1,7 +1,3 @@
-import { SESSION_COOKIE } from "@/lib/session";
+import { container } from "@/infrastructure/container";
 
-export async function POST() {
-  const response = Response.json({ ok: true });
-  response.headers.append("Set-Cookie", `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
-  return response;
-}
+export const POST = () => container().controllers.auth.postLogout();

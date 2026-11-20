@@ -3,10 +3,10 @@ import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
 import { UserMenu } from "@/components/user-menu";
 import { Skeleton } from "@/components/ui";
-import { getSession } from "@/lib/auth";
+import { getCurrentUser } from "@/infrastructure/session";
 
 async function CurrentUser() {
-  const user = await getSession();
+  const user = await getCurrentUser();
   if (!user) redirect("/login");
   return <UserMenu name={user.name} email={user.email} />;
 }

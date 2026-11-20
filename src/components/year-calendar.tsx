@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import Link from "next/link";
-import type { ScoredDay } from "@/lib/anomaly";
-import { fmtDate, fmtMoney, MONTHS_SHORT } from "@/lib/format";
+import type { ScoredDay } from "@/core/domain/anomaly";
+import { fmtDate, fmtMoney, MONTHS_SHORT } from "@/components/format";
 
 const SHADES = ["bg-brand-50", "bg-brand-100", "bg-brand-200", "bg-brand-500/70", "bg-brand-600"];
 

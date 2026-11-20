@@ -7,7 +7,7 @@ import { useState } from "react";
 import {
   Activity, BarChart3, Database, LayoutDashboard, Menu, PackageX, X,
 } from "lucide-react";
-import { TABLES } from "@/lib/tables";
+import { TABLES } from "@/core/domain/dataset";
 
 const MAIN = [
   { href: "/", label: "Overview", icon: LayoutDashboard },

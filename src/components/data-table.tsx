@@ -5,8 +5,8 @@ import {
   ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Loader2, Pencil, Plus, RefreshCw, Search, Trash2, X,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { fmtNumber } from "@/lib/format";
-import { getTable, type Column } from "@/lib/tables";
+import { fmtNumber } from "@/components/format";
+import { getTable, type Column } from "@/core/domain/dataset";
 import { Card } from "./ui";
 
 type Row = Record<string, string | number | null>;
