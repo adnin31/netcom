@@ -1,0 +1,8 @@
+# Never upload local secrets or data that the app does not need at runtime.
+.env*
+!.env.example
+.neon
+db
+docs
+node_modules
+.next

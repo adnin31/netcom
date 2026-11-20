@@ -90,7 +90,7 @@ npm run dev                     # http://localhost:3000
 
 ### Opsi C — Deploy gratis: Vercel + Neon
 
-Live: **https://dashboard.arraidev.site**
+Live: **https://dashboard.arraidev.site** (juga https://netcom-mocha.vercel.app)
 
 1. **Neon** — project sudah di-link lewat Neon CLI (`neon init` → `neon.ts`, `neon deploy`). Region **AWS US East 2 (Ohio)**, Postgres 18. `neon deploy` menulis `DATABASE_URL` (pooled) dan `DATABASE_URL_UNPOOLED` (direct) ke `.env.local`. Restore dump memakai koneksi **direct**:
    ```bash
