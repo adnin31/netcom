@@ -10,6 +10,7 @@ declare global {
 export function getDatabase(): postgres.Sql {
   globalThis.__netcomSql ??= postgres(config.databaseUrl, {
     max: config.dbPoolMax,
+    prepare: config.dbPrepare,
     idle_timeout: 30,
     connect_timeout: 10,
   });

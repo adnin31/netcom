@@ -88,6 +88,28 @@ npm ci
 npm run dev                     # http://localhost:3000
 ```
 
+### Opsi C — Deploy gratis: Vercel + Neon
+
+Live: **https://dashboard.arraidev.site**
+
+1. **Neon** — buat project (Postgres 16, region *AWS Asia Pacific (Singapore)*), lalu restore dump memakai connection string **direct** (host tanpa `-pooler`):
+   ```bash
+   gunzip -c db/netcom_dump.sql.gz | psql "postgresql://USER:PASS@ep-xxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
+   ```
+2. **Vercel** — *Add New → Project → Import* repo ini (framework terdeteksi Next.js). `vercel.json` mengunci region function ke `sin1` (Singapura) agar dekat dengan database. Environment variables:
+
+   | Key | Value |
+   |---|---|
+   | `DATABASE_URL` | connection string Neon **pooled** (host `-pooler`) |
+   | `DB_PREPARE` | `false` (pooler mode transaksi) |
+   | `DB_POOL_MAX` | `3` |
+   | `AUTH_SECRET` | hasil `openssl rand -base64 32` |
+   | `COOKIE_SECURE` | `true` |
+
+3. **Domain** — Vercel → Project → Settings → Domains → tambah `dashboard.arraidev.site`, lalu di DNS (Hostinger) tambahkan record `CNAME dashboard → <target dari Vercel>`. HTTPS aktif otomatis.
+
+Setiap push ke `main` otomatis di-deploy ulang oleh Vercel.
+
 ### Import ulang dari CSV (opsional)
 
 Dump sudah berisi seluruh data. Bila ingin membangun ulang dari CSV asli:
