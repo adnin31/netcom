@@ -5,6 +5,8 @@ import { ConflictError, ValidationError } from "@/core/domain/errors";
 const MAP: Record<string, () => Error> = {
   "23505": () => new ConflictError("Data dengan primary key tersebut sudah ada"),
   "23503": () => new ConflictError("Relasi tidak valid: data terkait tidak ada atau masih dipakai tabel lain"),
+  // PostgreSQL 18 reports ON DELETE/UPDATE RESTRICT violations as restrict_violation.
+  "23001": () => new ConflictError("Data masih dipakai tabel lain sehingga tidak bisa dihapus"),
   "23514": () => new ValidationError("Nilai melanggar aturan validasi"),
   "23502": () => new ValidationError("Kolom wajib tidak boleh kosong"),
   "22P02": () => new ValidationError("Format nilai tidak valid"),

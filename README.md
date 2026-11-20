@@ -92,11 +92,11 @@ npm run dev                     # http://localhost:3000
 
 Live: **https://dashboard.arraidev.site**
 
-1. **Neon** — buat project (Postgres 16, region *AWS Asia Pacific (Singapore)*), lalu restore dump memakai connection string **direct** (host tanpa `-pooler`):
+1. **Neon** — project sudah di-link lewat Neon CLI (`neon init` → `neon.ts`, `neon deploy`). Region **AWS US East 2 (Ohio)**, Postgres 18. `neon deploy` menulis `DATABASE_URL` (pooled) dan `DATABASE_URL_UNPOOLED` (direct) ke `.env.local`. Restore dump memakai koneksi **direct**:
    ```bash
-   gunzip -c db/netcom_dump.sql.gz | psql "postgresql://USER:PASS@ep-xxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
+   gunzip -c db/netcom_dump.sql.gz | psql "$DATABASE_URL_UNPOOLED"
    ```
-2. **Vercel** — *Add New → Project → Import* repo ini (framework terdeteksi Next.js). `vercel.json` mengunci region function ke `sin1` (Singapura) agar dekat dengan database. Environment variables:
+2. **Vercel** — *Add New → Project → Import* repo ini (framework terdeteksi Next.js). `vercel.json` mengunci region function ke `cle1` (Cleveland), region Vercel terdekat dengan database di Ohio. Environment variables:
 
    | Key | Value |
    |---|---|
