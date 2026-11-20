@@ -1,0 +1,41 @@
+# One command to run everything:  docker compose up -d --build
+# - db  : PostgreSQL 16, restored automatically from db/netcom_dump.sql.gz on first start
+# - app : Next.js dashboard on http://localhost:3000
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-netcom}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-netcom}
+      POSTGRES_DB: ${POSTGRES_DB:-netcom}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/netcom_dump.sql.gz:/docker-entrypoint-initdb.d/01-netcom_dump.sql.gz:ro
+    ports:
+      - "${DB_PORT:-5433}:5432"
+    healthcheck:
+      # 127.0.0.1 so the check only passes after the init restore has finished
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
+  app:
+    image: ${APP_IMAGE:-ghcr.io/adnin31/netcom:latest}
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-netcom}:${POSTGRES_PASSWORD:-netcom}@db:5432/${POSTGRES_DB:-netcom}
+      AUTH_SECRET: ${AUTH_SECRET:-change-me-please-use-openssl-rand-base64-32}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+
+volumes:
+  pgdata:
